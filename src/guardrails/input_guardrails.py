@@ -53,6 +53,43 @@ def normalize_input(text: str) -> str:
 # Regex is one signal, not the whole security boundary.
 # ============================================================
 
+def _inspect_encoded_payloads(text: str) -> bool:
+    """Decode and inspect base64 or hex encoded payloads inside text to uncover hidden injections."""
+    import base64
+    import binascii
+
+    # 1. Base64 pattern (candidates with length >= 12)
+    b64_matches = re.findall(r"[A-Za-z0-9+/]{12,}={0,2}", text)
+    for candidate in b64_matches:
+        try:
+            decoded_bytes = base64.b64decode(candidate, validate=True)
+            decoded_text = decoded_bytes.decode("utf-8", errors="ignore").lower()
+            if len(decoded_text) >= 4:
+                # Check dangerous keywords in decoded payload
+                dangerous_tokens = (
+                    "ignore", "system prompt", "delete_user_data", "password",
+                    "admin123", "sk-", "bypass", "jailbreak", "override",
+                    "hack", "exploit", "steal", "bỏ qua", "mật khẩu",
+                )
+                if any(tok in decoded_text for tok in dangerous_tokens):
+                    return True
+        except (binascii.Error, ValueError):
+            pass
+
+    # 2. Hex sequences (e.g. \x69\x67... or \u0069...)
+    hex_escapes = re.findall(r"(?:\\x[0-9a-fA-F]{2})+", text)
+    for esc in hex_escapes:
+        try:
+            raw_bytes = bytes.fromhex(esc.replace(r"\x", ""))
+            decoded_text = raw_bytes.decode("utf-8", errors="ignore").lower()
+            if any(tok in decoded_text for tok in ("ignore", "password", "delete", "admin", "prompt")):
+                return True
+        except Exception:
+            pass
+
+    return False
+
+
 def detect_injection(user_input: str) -> InputStatus:
     """Detect prompt injection patterns in user input.
 
@@ -65,7 +102,15 @@ def detect_injection(user_input: str) -> InputStatus:
     if not user_input or not user_input.strip():
         return "ALLOW"
 
+    # Input validation: block null byte attacks
+    if "\x00" in user_input:
+        return "BLOCK"
+
     normalized = normalize_input(user_input)
+
+    # Inspect encoded obfuscations (Base64 / Hex)
+    if _inspect_encoded_payloads(user_input) or _inspect_encoded_payloads(normalized):
+        return "BLOCK"
 
     INJECTION_PATTERNS = [
         r"ignore\s+(all\s+)?(previous|above|prior)?\s*instructions?",
@@ -76,10 +121,21 @@ def detect_injection(user_input: str) -> InputStatus:
         r"act\s+as\s+(a\s+|an\s+)?(unrestricted|jailbroken|evil)",
         r"role\s*play\s+as",
         r"(?:system|developer)\s+(?:prompt|instruction)|system\s+override",
+        r"\[system\s+instruction(?:\s+override)?\s*:.*?\]",
+        r"your\s+new\s+task\s+is\s+to\b",
         r"reveal\s+(your\s+)?(instructions?|prompt|secrets?|password|api\s*key)",
         r"show\s+(me\s+)?(your\s+)?(system\s+)?(prompt|instructions?|config)",
         r"bỏ\s+qua\s+(mọi\s+)?hướng\s+dẫn",
         r"tiết\s+lộ\s+(mật\s*khẩu|system\s*prompt|hướng\s*dẫn|api\s*key)",
+        # Dangerous tool invocations & indirect injections (from lecture)
+        r"\bdelete_user_data\b",
+        r"(?:call|invoke|execute|run)\s+(?:tool\s+)?delete_user_data",
+        r"delete\s+(all\s+)?(user\s+)?data\b",
+        r"send\s+.*?\s+to\s+https?://",
+        r"bypass\s+safety(\s+filters)?",
+        r"do\s+anything\s+now",
+        r"no\s+limits\b",
+        r"đóng\s+vai\b",
     ]
 
     for pattern in INJECTION_PATTERNS:

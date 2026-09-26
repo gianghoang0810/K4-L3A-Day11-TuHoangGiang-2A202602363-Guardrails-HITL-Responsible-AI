@@ -15,7 +15,7 @@ from urllib.parse import urlparse
 TRUSTED_EGRESS_HOSTS = frozenset({"api.vinbank.example", "cases.vinbank.example"})
 HIGH_RISK_ACTIONS = frozenset({
     "transfer_money", "close_account", "change_password",
-    "delete_data", "update_personal_info",
+    "delete_data", "delete_user_data", "update_personal_info",
 })
 ZERO_WIDTH = "\u200b\u200c\u200d\ufeff\u2060"
 SECRET_PATTERNS = (
@@ -29,6 +29,9 @@ INSTRUCTION_OVERRIDE_PATTERNS = (
     r"(?:system|developer)\s+(?:prompt|instruction)|system\s+override",
     r"(?:reveal|disclose|translate|encode|summarize)\b.*(?:secret|password|credential|api\s*key|internal)",
     r"bỏ\s+qua\s+(?:mọi\s+)?hướng\s+dẫn|tiết\s+lộ\s+(?:mật\s*khẩu|api|thông\s*tin\s*nội\s*bộ)",
+    r"\bdelete_user_data\b",
+    r"your\s+new\s+task\s+is\s+to\b",
+    r"\[system\s+instruction(?:\s+override)?\s*:.*?\]",
 )
 
 

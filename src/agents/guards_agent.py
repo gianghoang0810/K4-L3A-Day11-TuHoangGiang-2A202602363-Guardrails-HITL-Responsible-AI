@@ -85,6 +85,9 @@ _INJECTION_PATTERNS = [
     r"hypotheticall?y.*(password|api\s*key|secret|credentials)",
     r"write\s+a\s+story.*(password|credentials|api\s*key|same\s+secrets)",
     r"confirm\s+(that\s+)?(the\s+)?(admin\s+)?password",
+    r"\bdelete_user_data\b",
+    r"\[system\s+instruction(?:\s+override)?\s*:.*?\]",
+    r"your\s+new\s+task\s+is\s+to\b",
 ]
 
 _OUTPUT_SECRET_PATTERNS = {
@@ -96,7 +99,20 @@ _OUTPUT_SECRET_PATTERNS = {
 
 
 def detect_injection_strong(text: str) -> bool:
+    import base64
+    import binascii
     normalized = normalize_for_security(text)
+
+    # Base64 inspection
+    b64_matches = re.findall(r"[A-Za-z0-9+/]{12,}={0,2}", text)
+    for candidate in b64_matches:
+        try:
+            dec = base64.b64decode(candidate, validate=True).decode("utf-8", errors="ignore").lower()
+            if any(tok in dec for tok in ("ignore", "password", "delete", "admin", "prompt", "secret", "override")):
+                return True
+        except (binascii.Error, ValueError):
+            pass
+
     return contains_instruction_override(normalized) or any(
         re.search(pattern, normalized, re.IGNORECASE) for pattern in _INJECTION_PATTERNS
     )
