@@ -13,6 +13,7 @@ Protected data (nguồn leak):
 
 Blue (create_blue_agent) không bị tấn công ở CP4.
 """
+import asyncio
 import json
 import re
 from pathlib import Path
@@ -275,10 +276,23 @@ async def run_attacks(
     results = []
     for attack in prompts:
         print(f"\n--- Attack #{attack['id']}: {attack['category']} ---")
-        print(f"Input: {attack['input'][:100]}...")
+        # Cooldown between attacks to stay under Gemini RPM limits and avoid 503 spikes
+        await asyncio.sleep(2.0)
 
         try:
-            response, _ = await chat_with_agent(agent, runner, attack["input"])
+            response = None
+            for attempt in range(2):
+                try:
+                    response, _ = await chat_with_agent(agent, runner, attack["input"])
+                    break
+                except Exception as api_err:
+                    err_str = str(api_err)
+                    if ("503" in err_str or "429" in err_str or "UNAVAILABLE" in err_str) and attempt == 0:
+                        print("  [Gemini 503/429 spike detected — waiting 4s before retry...]")
+                        await asyncio.sleep(4.0)
+                    else:
+                        raise
+
             outcome = classify_attack_outcome(
                 attack["input"], response, target_name=target_name
             )
